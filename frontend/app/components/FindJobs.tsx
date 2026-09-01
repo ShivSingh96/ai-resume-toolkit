@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
 import axios from "axios";
-import { API_BASE } from "../../lib/api";
+import { API_BASE, getClientId } from "../../lib/api";
 
 interface StoredResume { id: string; summary: string }
 
@@ -139,7 +139,7 @@ export default function FindJobs({ result, onResultChange, onPrepForRole }: Prop
   const [loadingJobs, setLoadingJobs] = useState(false);
 
   useEffect(() => {
-    axios.get(`${API_BASE}/resumes`).then((r: any) => {
+    axios.get(`${API_BASE}/resumes`, { params: { client_id: getClientId() } }).then((r: any) => {
       const list: StoredResume[] = r.data.resumes ?? [];
       setResumes(list);
       if (list.length > 0 && !selectedId) setSelectedId(list[0].id);
@@ -196,15 +196,17 @@ export default function FindJobs({ result, onResultChange, onPrepForRole }: Prop
     onResultChange(null);
     try {
       setUploadStep("uploading");
+      const clientId = getClientId();
       const form = new FormData();
       form.append("file", uploadFile);
+      form.append("client_id", clientId);
       const up = await axios.post(`${API_BASE}/upload`, form, { headers: { "Content-Type": "multipart/form-data" } });
       const file_id: string = up.data.file_id;
 
       setUploadStep("analyzing");
-      await axios.post(`${API_BASE}/summarize`, { file_id });
+      await axios.post(`${API_BASE}/summarize`, { file_id, client_id: clientId });
 
-      const listRes = await axios.get(`${API_BASE}/resumes`);
+      const listRes = await axios.get(`${API_BASE}/resumes`, { params: { client_id: clientId } });
       const list: StoredResume[] = listRes.data.resumes ?? [];
       setResumes(list);
       setSelectedId(file_id);
@@ -227,6 +229,7 @@ export default function FindJobs({ result, onResultChange, onPrepForRole }: Prop
     setLoading(false);
   };
 
+  const [showUploadNew, setShowUploadNew] = useState(false);
   const hasResumes = resumes.length > 0;
   const isUploading = uploadStep === "uploading" || uploadStep === "analyzing";
   const progressStep: "uploading" | "analyzing" | "searching" =
@@ -236,7 +239,7 @@ export default function FindJobs({ result, onResultChange, onPrepForRole }: Prop
     <div className="space-y-5">
       {/* Control card */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200/80 overflow-hidden">
-        <div className="bg-gradient-to-r from-sky-500 to-teal-500 px-6 py-4 flex items-center justify-between">
+        <div className="bg-gradient-to-r from-slate-800 to-slate-900 px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
               <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -245,7 +248,7 @@ export default function FindJobs({ result, onResultChange, onPrepForRole }: Prop
             </div>
             <div>
               <p className="text-sm font-bold text-white">Find Matching Jobs</p>
-              <p className="text-xs text-sky-100">AI career fit analysis + live Adzuna job listings</p>
+              <p className="text-xs text-slate-400">AI career fit analysis + live Adzuna job listings</p>
             </div>
           </div>
           <div className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-white/20 text-white font-semibold">
@@ -254,7 +257,7 @@ export default function FindJobs({ result, onResultChange, onPrepForRole }: Prop
           </div>
         </div>
 
-        <div className="p-6">
+        <div className="p-6 bg-[#f7fcfe]">
           {!hasResumes ? (
             <div className="space-y-4">
               <p className="text-sm text-gray-500">Upload your resume once — AI extracts your profile, finds your best-fit roles, and searches live job boards.</p>
@@ -318,14 +321,14 @@ export default function FindJobs({ result, onResultChange, onPrepForRole }: Prop
           ) : (
             <div className="space-y-4">
               <div className="flex gap-3 flex-wrap items-end">
-                <div className="flex-1 min-w-44">
+                <div className="flex-1 min-w-0">
                   <label className="block text-xs font-semibold text-gray-600 mb-1.5">Resume</label>
-                  <select value={selectedId} onChange={(e) => { setSelectedId(e.target.value); onResultChange(null); }}
+                  <select value={selectedId} onChange={(e) => { setSelectedId(e.target.value); onResultChange(null); setShowUploadNew(false); }}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-sky-500 text-gray-800">
                     {resumes.map((r) => <option key={r.id} value={r.id}>{r.id.replace(/^[0-9a-f]+_/, "")}</option>)}
                   </select>
                 </div>
-                <div className="w-36">
+                <div className="w-full sm:w-36">
                   <label className="block text-xs font-semibold text-gray-600 mb-1.5">Market</label>
                   <select value={country} onChange={(e) => { setCountry(e.target.value); onResultChange(null); }}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-sky-500 text-gray-800">
@@ -333,20 +336,88 @@ export default function FindJobs({ result, onResultChange, onPrepForRole }: Prop
                   </select>
                 </div>
               </div>
-              {loading && <ProgressSteps step="searching" />}
-              <button onClick={handleSearch} disabled={loading || !selectedId}
-                className={`w-full py-3 rounded-xl font-bold text-sm text-white ${loading || !selectedId ? "bg-sky-400 cursor-not-allowed" : "bg-gradient-to-r from-sky-500 to-teal-500 hover:opacity-90 shadow-md shadow-sky-200"}`}>
-                {loading ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                    </svg>
-                    Finding your jobs…
-                  </span>
-                ) : "Find My Jobs"}
+
+              {/* Upload different resume toggle */}
+              <button onClick={() => { setShowUploadNew(v => !v); setUploadFile(null); setUploadError(""); }}
+                className="flex items-center gap-1.5 text-xs text-teal-600 hover:text-teal-800 font-semibold">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+                {showUploadNew ? "Cancel upload" : "Upload a different resume"}
               </button>
-              {error && <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm"><strong>Error:</strong> {error}</div>}
+
+              {showUploadNew && (
+                <div className="space-y-3 pt-1">
+                  <div {...getRootProps()} className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all ${
+                    isDragActive ? "border-sky-400 bg-sky-50"
+                    : uploadFile ? "border-emerald-400 bg-emerald-50/50"
+                    : "border-gray-200 hover:border-sky-300 hover:bg-sky-50/20"
+                  }`}>
+                    <input {...getInputProps()} />
+                    <div className="flex flex-col items-center gap-2">
+                      {uploadFile ? (
+                        <>
+                          <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center">
+                            <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                          </div>
+                          <p className="font-semibold text-gray-900 text-sm">{uploadFile.name}</p>
+                          <p className="text-xs text-gray-400">{(uploadFile.size / 1024).toFixed(0)} KB · click to change</p>
+                        </>
+                      ) : (
+                        <>
+                          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-100 to-teal-100 flex items-center justify-center">
+                            <svg className="w-5 h-5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                            </svg>
+                          </div>
+                          <p className="text-sm font-medium text-gray-700">Drop resume or <span className="text-sky-600 font-semibold">browse</span></p>
+                          <p className="text-xs text-gray-400">PDF, DOCX or TXT</p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  {uploadFile && (
+                    <>
+                      {isUploading && <ProgressSteps step={progressStep} />}
+                      <button onClick={handleUploadAndSearch} disabled={isUploading}
+                        className={`w-full py-3 rounded-xl font-bold text-sm text-white ${isUploading ? "bg-sky-400 cursor-not-allowed" : "bg-gradient-to-r from-sky-500 to-teal-500 hover:opacity-90 shadow-md shadow-sky-200"}`}>
+                        {isUploading ? (
+                          <span className="flex items-center justify-center gap-2">
+                            <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                            </svg>
+                            Working…
+                          </span>
+                        ) : "Analyze & Find Jobs"}
+                      </button>
+                    </>
+                  )}
+                  {uploadError && <p className="text-xs text-red-600">{uploadError}</p>}
+                </div>
+              )}
+
+              {!showUploadNew && (
+                <>
+                  {loading && <ProgressSteps step="searching" />}
+                  <button onClick={handleSearch} disabled={loading || !selectedId}
+                    className={`w-full py-3 rounded-xl font-bold text-sm text-white ${loading || !selectedId ? "bg-sky-400 cursor-not-allowed" : "bg-gradient-to-r from-sky-500 to-teal-500 hover:opacity-90 shadow-md shadow-sky-200"}`}>
+                    {loading ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                        </svg>
+                        Finding your jobs…
+                      </span>
+                    ) : "Find My Jobs"}
+                  </button>
+                  {error && <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm"><strong>Error:</strong> {error}</div>}
+                </>
+              )}
             </div>
           )}
         </div>
@@ -360,8 +431,8 @@ export default function FindJobs({ result, onResultChange, onPrepForRole }: Prop
           {result.careerFit && (
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-violet-100 flex items-center justify-center">
-                  <svg className="w-4 h-4 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-7 h-7 rounded-lg bg-teal-100 flex items-center justify-center">
+                  <svg className="w-4 h-4 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                       d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
@@ -378,7 +449,7 @@ export default function FindJobs({ result, onResultChange, onPrepForRole }: Prop
                 </div>
                 <div className="px-5 pb-4 -mt-4">
                   <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3.5 flex flex-wrap gap-2 items-center">
-                    <span className="text-xs px-3 py-1.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200 font-bold">{result.careerFit.experience_level}</span>
+                    <span className="text-xs px-3 py-1.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200 font-bold">{result.careerFit.experience_level}</span>
                     <span className="text-xs px-3 py-1.5 rounded-full bg-gray-50 text-gray-600 border border-gray-200 font-semibold">{result.careerFit.years_experience}+ yrs</span>
                     {result.careerFit.top_skills?.map((s) => (
                       <span key={s} className="text-xs px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 font-medium">{s}</span>
@@ -422,7 +493,7 @@ export default function FindJobs({ result, onResultChange, onPrepForRole }: Prop
                         </a>
                       ))}
                       <button onClick={() => onPrepForRole(role.title)}
-                        className="text-xs font-semibold text-indigo-600 px-2.5 py-1 rounded-lg border border-indigo-200 hover:bg-indigo-50 transition-colors ml-auto">
+                        className="text-xs font-semibold text-teal-600 px-2.5 py-1 rounded-lg border border-teal-200 hover:bg-teal-50 transition-colors ml-auto">
                         Prep →
                       </button>
                     </div>
@@ -483,7 +554,7 @@ export default function FindJobs({ result, onResultChange, onPrepForRole }: Prop
                           </svg>
                         </a>
                         <button onClick={() => onPrepForRole(job.title)}
-                          className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 px-3.5 py-2 rounded-xl border border-indigo-200 hover:bg-indigo-50 transition-colors">
+                          className="text-xs font-semibold text-teal-600 hover:text-teal-800 px-3.5 py-2 rounded-xl border border-teal-200 hover:bg-teal-50 transition-colors">
                           Prep for this role →
                         </button>
                       </div>

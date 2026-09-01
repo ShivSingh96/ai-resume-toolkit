@@ -11,7 +11,7 @@ from typing import Optional, List
 import httpx
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -77,6 +77,7 @@ app.add_middleware(
 
 class SummaryRequest(BaseModel):
     file_id: str
+    client_id: Optional[str] = None
 
 class JobDescriptionRequest(BaseModel):
     job_description: str
@@ -133,7 +134,7 @@ async def provider_info():
 
 
 @app.post("/upload")
-async def upload_resume(file: UploadFile = File(...)):
+async def upload_resume(file: UploadFile = File(...), client_id: Optional[str] = Form(None)):
     """Upload a resume file. Returns a file_id for subsequent calls."""
     if not _valid_extension(file.filename):
         raise HTTPException(
@@ -161,7 +162,7 @@ async def upload_resume(file: UploadFile = File(...)):
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
 
-    return {"file_id": file_id, "filename": file.filename}
+    return {"file_id": file_id, "filename": file.filename, "client_id": client_id}
 
 
 @app.post("/summarize")
@@ -197,7 +198,8 @@ async def summarize_resume(request: SummaryRequest):
             )
 
         summary = _provider.generate_filtered(build_resume_prompt(text))
-        _resume_store.add_resume(request.file_id, text, summary)
+        meta = {"client_id": request.client_id} if request.client_id else {}
+        _resume_store.add_resume(request.file_id, text, summary, metadata=meta)
 
         return {"summary": summary, "file_id": request.file_id}
 
@@ -259,9 +261,9 @@ async def summarize_resume_stream(file_id: str):
 
 
 @app.get("/resumes")
-async def list_resumes():
-    """List all stored resumes."""
-    return {"resumes": _resume_store.get_all_resumes()}
+async def list_resumes(client_id: Optional[str] = None):
+    """List resumes, optionally filtered by client_id."""
+    return {"resumes": _resume_store.get_all_resumes(client_id=client_id)}
 
 
 @app.post("/compare")
@@ -575,7 +577,7 @@ async def interview_resources(request: InterviewResourceRequest):
 _ATS_CHECK_PROMPT = """You are an expert ATS (Applicant Tracking System) analyst.
 Analyze this resume for ATS compatibility and return ONLY valid JSON (no markdown, no code fences).
 
-Resume summary:
+Resume text:
 {resume_text}
 
 {{
@@ -605,11 +607,12 @@ async def ats_check(request: ATSCheckRequest):
     if not stored:
         raise HTTPException(status_code=404, detail="Resume not found. Analyze it first.")
 
-    summary = stored.get("summary", "")
-    if not summary:
-        raise HTTPException(status_code=400, detail="Resume has no summary. Re-analyze it first.")
+    # Prefer full resume text so contact info / education aren't stripped by the summarizer
+    resume_text = stored.get("_text") or stored.get("summary", "")
+    if not resume_text:
+        raise HTTPException(status_code=400, detail="Resume has no content. Re-analyze it first.")
 
-    prompt = _ATS_CHECK_PROMPT.format(resume_text=summary[:2000])
+    prompt = _ATS_CHECK_PROMPT.format(resume_text=resume_text[:8000])
     try:
         raw = _provider.generate_filtered(prompt)
         raw = re.sub(r"```(?:json)?", "", raw).strip().rstrip("`").strip()

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
 import axios from "axios";
-import { API_BASE } from "../../lib/api";
+import { API_BASE, getClientId } from "../../lib/api";
 
 interface StoredResume { id: string; summary: string }
 
@@ -108,9 +108,10 @@ export default function ATSChecker({ result, onResultChange }: Props) {
   const [uploadFile, setUploadFile]   = useState<File | null>(null);
   const [uploadStep, setUploadStep]   = useState<"idle" | "uploading" | "analyzing">("idle");
   const [uploadError, setUploadError] = useState("");
+  const [showUploadNew, setShowUploadNew] = useState(false);
 
   useEffect(() => {
-    axios.get(`${API_BASE}/resumes`).then((r: any) => {
+    axios.get(`${API_BASE}/resumes`, { params: { client_id: getClientId() } }).then((r: any) => {
       const list: StoredResume[] = r.data.resumes ?? [];
       setResumes(list);
       if (list.length > 0 && !selectedId) setSelectedId(list[0].id);
@@ -152,19 +153,22 @@ export default function ATSChecker({ result, onResultChange }: Props) {
     onResultChange(null);
     try {
       setUploadStep("uploading");
+      const clientId = getClientId();
       const form = new FormData();
       form.append("file", uploadFile);
+      form.append("client_id", clientId);
       const up = await axios.post(`${API_BASE}/upload`, form, { headers: { "Content-Type": "multipart/form-data" } });
       const file_id: string = up.data.file_id;
 
       setUploadStep("analyzing");
-      await axios.post(`${API_BASE}/summarize`, { file_id });
+      await axios.post(`${API_BASE}/summarize`, { file_id, client_id: clientId });
 
-      const listRes = await axios.get(`${API_BASE}/resumes`);
+      const listRes = await axios.get(`${API_BASE}/resumes`, { params: { client_id: clientId } });
       const list: StoredResume[] = listRes.data.resumes ?? [];
       setResumes(list);
       setSelectedId(file_id);
       setUploadStep("idle");
+      setShowUploadNew(false);
 
       await runCheck(file_id);
     } catch (err: any) {
@@ -182,7 +186,7 @@ export default function ATSChecker({ result, onResultChange }: Props) {
     <div className="space-y-5">
       {/* Control card */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200/80 overflow-hidden">
-        <div className="bg-gradient-to-r from-indigo-600 to-violet-600 px-6 py-4 flex items-center gap-3">
+        <div className="bg-gradient-to-r from-slate-800 to-slate-900 px-6 py-4 flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
             <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -191,20 +195,20 @@ export default function ATSChecker({ result, onResultChange }: Props) {
           </div>
           <div>
             <p className="text-sm font-bold text-white">ATS Resume Checker</p>
-            <p className="text-xs text-indigo-200">Score your resume for Applicant Tracking Systems</p>
+            <p className="text-xs text-slate-400">Score your resume for Applicant Tracking Systems</p>
           </div>
         </div>
 
-        <div className="p-6">
+        <div className="p-6 bg-[#f7fcfe]">
           {!hasResumes ? (
             <div className="space-y-4">
               <p className="text-sm text-gray-500">Upload your resume to get an instant ATS compatibility score with section-by-section feedback.</p>
               <div
                 {...getRootProps()}
                 className={`border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all ${
-                  isDragActive ? "border-indigo-400 bg-indigo-50"
+                  isDragActive ? "border-sky-400 bg-sky-50"
                   : uploadFile ? "border-emerald-400 bg-emerald-50/50"
-                  : "border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/20"
+                  : "border-gray-200 hover:border-sky-300 hover:bg-sky-50/20"
                 }`}
               >
                 <input {...getInputProps()} />
@@ -223,14 +227,14 @@ export default function ATSChecker({ result, onResultChange }: Props) {
                     </>
                   ) : (
                     <>
-                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-100 to-violet-100 flex items-center justify-center">
-                        <svg className="w-6 h-6 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-sky-100 to-teal-100 flex items-center justify-center">
+                        <svg className="w-6 h-6 text-teal-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                             d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-gray-700">Drop resume here or <span className="text-indigo-600 font-semibold">browse</span></p>
+                        <p className="text-sm font-medium text-gray-700">Drop resume here or <span className="text-teal-600 font-semibold">browse</span></p>
                         <p className="text-xs text-gray-400 mt-1">PDF, DOCX or TXT</p>
                       </div>
                     </>
@@ -239,7 +243,7 @@ export default function ATSChecker({ result, onResultChange }: Props) {
               </div>
               {uploadFile && (
                 <button onClick={handleUploadAndCheck} disabled={isBusy}
-                  className={`w-full py-3 rounded-xl font-bold text-sm text-white ${isBusy ? "bg-indigo-400 cursor-not-allowed" : "bg-gradient-to-r from-indigo-600 to-violet-600 hover:opacity-90 shadow-md shadow-indigo-200"}`}>
+                  className={`w-full py-3 rounded-xl font-bold text-sm text-white ${isBusy ? "bg-teal-400 cursor-not-allowed" : "bg-gradient-to-r from-sky-500 to-teal-500 hover:opacity-90 shadow-md shadow-teal-200"}`}>
                   {isBusy ? (
                     <span className="flex items-center justify-center gap-2">
                       <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -259,12 +263,12 @@ export default function ATSChecker({ result, onResultChange }: Props) {
                 <div className="flex-1 min-w-48">
                   <label className="block text-xs font-semibold text-gray-600 mb-1.5">Resume</label>
                   <select value={selectedId} onChange={(e) => { setSelectedId(e.target.value); onResultChange(null); }}
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800">
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 text-gray-800">
                     {resumes.map((r) => <option key={r.id} value={r.id}>{r.id.replace(/^[0-9a-f]+_/, "")}</option>)}
                   </select>
                 </div>
                 <button onClick={() => runCheck(selectedId)} disabled={isBusy || !selectedId}
-                  className={`px-6 py-2.5 rounded-xl text-sm font-bold text-white ${isBusy || !selectedId ? "bg-indigo-400 cursor-not-allowed" : "bg-gradient-to-r from-indigo-600 to-violet-600 hover:opacity-90 shadow-md shadow-indigo-200"}`}>
+                  className={`px-6 py-2.5 rounded-xl text-sm font-bold text-white ${isBusy || !selectedId ? "bg-teal-400 cursor-not-allowed" : "bg-gradient-to-r from-sky-500 to-teal-500 hover:opacity-90 shadow-md shadow-teal-200"}`}>
                   {loading ? (
                     <span className="flex items-center gap-2">
                       <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -276,6 +280,53 @@ export default function ATSChecker({ result, onResultChange }: Props) {
                   ) : "Check ATS Score"}
                 </button>
               </div>
+
+              {/* Upload different resume toggle */}
+              <button
+                onClick={() => { setShowUploadNew(v => !v); setUploadFile(null); setUploadError(""); }}
+                className="text-xs text-teal-600 hover:text-teal-800 font-semibold flex items-center gap-1"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+                {showUploadNew ? "Cancel upload" : "Upload a different resume"}
+              </button>
+
+              {showUploadNew && (
+                <div className="space-y-3 pt-1">
+                  <div
+                    {...getRootProps()}
+                    className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all ${
+                      isDragActive ? "border-sky-400 bg-sky-50"
+                      : uploadFile ? "border-emerald-400 bg-emerald-50/50"
+                      : "border-gray-200 hover:border-sky-300 hover:bg-sky-50/20"
+                    }`}
+                  >
+                    <input {...getInputProps()} />
+                    {uploadFile ? (
+                      <p className="text-sm font-semibold text-gray-900">{uploadFile.name} <span className="text-xs text-gray-400 font-normal">· click to change</span></p>
+                    ) : (
+                      <p className="text-sm text-gray-500">Drop resume or <span className="text-teal-600 font-semibold">browse</span> · PDF, DOCX, TXT</p>
+                    )}
+                  </div>
+                  {uploadFile && (
+                    <button onClick={handleUploadAndCheck} disabled={isBusy}
+                      className={`w-full py-2.5 rounded-xl font-bold text-sm text-white ${isBusy ? "bg-teal-400 cursor-not-allowed" : "bg-gradient-to-r from-sky-500 to-teal-500 hover:opacity-90 shadow-md shadow-teal-200"}`}>
+                      {isBusy ? (
+                        <span className="flex items-center justify-center gap-2">
+                          <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                          </svg>
+                          {uploadLabel}
+                        </span>
+                      ) : "Upload & Check ATS Score"}
+                    </button>
+                  )}
+                  {uploadError && <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs"><strong>Error:</strong> {uploadError}</div>}
+                </div>
+              )}
+
               {error && <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm"><strong>Error:</strong> {error}</div>}
             </div>
           )}
@@ -287,6 +338,7 @@ export default function ATSChecker({ result, onResultChange }: Props) {
         <div className="space-y-4">
           {/* Score + sections grid */}
           <div className="grid sm:grid-cols-3 gap-4">
+
             <ScoreGauge score={result.overall_score} grade={result.grade} />
 
             {/* Section breakdown */}
@@ -376,6 +428,18 @@ export default function ATSChecker({ result, onResultChange }: Props) {
                 ))}
               </ul>
             </div>
+          </div>
+
+          {/* Disclaimer */}
+          <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200/80">
+            <svg className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p className="text-xs text-amber-800 leading-relaxed">
+              <strong>AI content analysis</strong> — scores section completeness and keyword presence based on your resume text.
+              This does not simulate how real ATS software (Taleo, Workday, iCIMS) parses file formatting, tables, or columns.
+              For format testing, use tools like <span className="font-semibold">Jobscan</span> or <span className="font-semibold">Resume Worded</span>.
+            </p>
           </div>
         </div>
       )}
