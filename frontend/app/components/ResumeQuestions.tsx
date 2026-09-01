@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import axios from 'axios';
 
-const API_URL = 'http://localhost:8000';
+import { API_BASE } from '../../lib/api';
+const API_URL = API_BASE;
 
 interface ResumeQuestionsProps {
   resumeId: string;

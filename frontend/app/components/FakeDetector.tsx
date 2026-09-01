@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import axios from 'axios';
 
-const API_URL = 'http://localhost:8000';
+import { API_BASE } from '../../lib/api';
+const API_URL = API_BASE;
 
 interface DetectionResult {
   is_suspicious: boolean;

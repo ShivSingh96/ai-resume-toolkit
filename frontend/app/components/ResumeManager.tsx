@@ -3,7 +3,8 @@ import axios from 'axios';
 import JobDescriptionForm from './JobDescriptionForm';
 import ResumeQuestions from './ResumeQuestions';
 
-const API_URL = 'http://localhost:8000';
+import { API_BASE } from '../../lib/api';
+const API_URL = API_BASE;
 
 interface Resume {
   id: string;

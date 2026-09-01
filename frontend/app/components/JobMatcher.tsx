@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import axios from 'axios';
-
-const API_URL = 'http://localhost:8000';
+import { API_BASE } from '../../lib/api';
 
 interface MatchedResume {
   id: string;
@@ -13,10 +12,11 @@ interface MatchedResume {
 
 export default function JobMatcher() {
   const [file, setFile] = useState<File | null>(null);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string>('');
-  const [jobDescription, setJobDescription] = useState<string>('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [jobDescription, setJobDescription] = useState('');
   const [matchedResumes, setMatchedResumes] = useState<MatchedResume[]>([]);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: (acceptedFiles) => {
@@ -28,9 +28,9 @@ export default function JobMatcher() {
     accept: {
       'application/pdf': ['.pdf'],
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
-      'text/plain': ['.txt']
+      'text/plain': ['.txt'],
     },
-    maxFiles: 1
+    maxFiles: 1,
   });
 
   const handleUpload = async () => {
@@ -38,27 +38,20 @@ export default function JobMatcher() {
       setError('Please select a job description file first.');
       return;
     }
-
     setLoading(true);
     setError('');
-    setJobDescription('');
     setMatchedResumes([]);
 
     try {
       const formData = new FormData();
       formData.append('file', file);
-
-      const response = await axios.post(`${API_URL}/upload-job-description`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
+      const response = await axios.post(`${API_BASE}/upload-job-description`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
-
       setJobDescription(response.data.job_description);
       setMatchedResumes(response.data.matching_resumes);
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Error processing job description. Please try again.');
-      console.error(err);
+      setError(err.response?.data?.detail ?? 'Error processing job description.');
     } finally {
       setLoading(false);
     }
@@ -66,51 +59,23 @@ export default function JobMatcher() {
 
   const handleTextInput = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    
     if (!jobDescription.trim()) {
       setError('Please enter a job description.');
       return;
     }
-
     setLoading(true);
     setError('');
     setMatchedResumes([]);
 
     try {
-      // Use an existing endpoint to find matches
-      // We'll need to extract sample resumes first to match against
-      const resumesResponse = await axios.get(`${API_URL}/resumes`);
-      const resumeIds = resumesResponse.data.resumes.map((r: any) => r.id);
-
-      if (resumeIds.length === 0) {
-        setError('No resumes available to match against. Please upload some resumes first.');
-        setLoading(false);
-        return;
-      }
-
-      // For each resume, calculate match score
-      const matchPromises = resumeIds.map(async (id: string) => {
-        const gapResponse = await axios.post(`${API_URL}/identify-gaps`, {
-          job_description: jobDescription,
-          resume_ids: [id]
-        });
-
-        // Get the resume details
-        const resumeDetails = resumesResponse.data.resumes.find((r: any) => r.id === id);
-        return {
-          id,
-          summary: resumeDetails.summary,
-          match_score: Math.random(), // This is a placeholder - would need actual scoring logic
-          metadata: resumeDetails.metadata,
-          gap_analysis: gapResponse.data.gap_analysis
-        };
+      // Uses real vector search + LLM scoring via /match-job-description
+      const response = await axios.post(`${API_BASE}/match-job-description`, {
+        job_description: jobDescription,
+        top_n: 10,
       });
-
-      const results = await Promise.all(matchPromises);
-      setMatchedResumes(results.sort((a, b) => b.match_score - a.match_score));
+      setMatchedResumes(response.data.matching_resumes);
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Error matching job description. Please try again.');
-      console.error(err);
+      setError(err.response?.data?.detail ?? 'Error matching job description.');
     } finally {
       setLoading(false);
     }
@@ -120,6 +85,7 @@ export default function JobMatcher() {
     <div className="bg-white p-6 rounded-lg shadow-md mb-8">
       <h2 className="text-xl font-semibold mb-4">Match Job Description to Resumes</h2>
 
+      {/* File upload */}
       <div className="mb-6">
         <h3 className="text-lg font-medium mb-2">Upload Job Description</h3>
         <div
@@ -135,31 +101,27 @@ export default function JobMatcher() {
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
-              xmlns="http://www.w3.org/2000/svg"
             >
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                strokeWidth="2"
+                strokeWidth={2}
                 d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
               />
             </svg>
-
             {file ? (
               <p className="text-sm font-medium text-gray-900">{file.name}</p>
             ) : (
               <div>
                 <p className="text-sm font-medium text-gray-900">
-                  Drop job description file here, or <span className="text-blue-500">browse</span>
+                  Drop job description file here, or{' '}
+                  <span className="text-blue-500">browse</span>
                 </p>
-                <p className="text-xs text-gray-500 mt-1">
-                  Supports PDF, DOCX, and TXT files
-                </p>
+                <p className="text-xs text-gray-500 mt-1">Supports PDF, DOCX, and TXT files</p>
               </div>
             )}
           </div>
         </div>
-
         {file && (
           <div className="mt-3 flex justify-center">
             <button
@@ -169,21 +131,22 @@ export default function JobMatcher() {
                 loading ? 'bg-blue-400' : 'bg-blue-600 hover:bg-blue-700'
               } transition-colors`}
             >
-              {loading ? 'Processing...' : 'Upload & Find Matches'}
+              {loading ? 'Processing…' : 'Upload & Find Matches'}
             </button>
           </div>
         )}
       </div>
 
+      {/* Text input */}
       <div className="mb-6">
         <h3 className="text-lg font-medium mb-2">Or Enter Job Description Text</h3>
         <form onSubmit={handleTextInput}>
           <textarea
             className="w-full p-3 border rounded-md h-40"
-            placeholder="Paste job description here..."
+            placeholder="Paste job description here…"
             value={jobDescription}
             onChange={(e) => setJobDescription(e.target.value)}
-          ></textarea>
+          />
           <div className="mt-3 flex justify-center">
             <button
               type="submit"
@@ -192,46 +155,70 @@ export default function JobMatcher() {
                 loading ? 'bg-indigo-400' : 'bg-indigo-600 hover:bg-indigo-700'
               } transition-colors`}
             >
-              {loading ? 'Finding Matches...' : 'Find Matching Resumes'}
+              {loading ? 'Finding Matches…' : 'Find Matching Resumes'}
             </button>
           </div>
         </form>
       </div>
 
-      {error && (
-        <div className="mt-4 p-3 bg-red-50 text-red-700 rounded-md">
-          {error}
-        </div>
-      )}
+      {error && <div className="mt-4 p-3 bg-red-50 text-red-700 rounded-md">{error}</div>}
 
+      {/* Results */}
       {matchedResumes.length > 0 && (
         <div className="mt-6">
-          <h3 className="text-lg font-medium mb-3">Matching Resumes</h3>
+          <h3 className="text-lg font-medium mb-3">
+            Matching Resumes ({matchedResumes.length})
+          </h3>
           <div className="space-y-4">
             {matchedResumes.map((resume) => (
-              <div key={resume.id} className="border rounded-md p-4">
-                <div className="flex justify-between items-center mb-2">
-                  <h4 className="font-medium">Resume ID: {resume.id}</h4>
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                    Match Score: {(resume.match_score * 100).toFixed(0)}%
-                  </span>
+              <div key={resume.id} className="border rounded-md overflow-hidden">
+                <div className="flex justify-between items-center p-4">
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-medium text-sm truncate" title={resume.id}>
+                      {resume.id}
+                    </h4>
+                    <p className="text-sm text-gray-500 mt-1 line-clamp-1">
+                      {resume.summary.split('\n')[0]}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3 ml-4 shrink-0">
+                    <span
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                        resume.match_score >= 0.7
+                          ? 'bg-green-100 text-green-800'
+                          : resume.match_score >= 0.4
+                          ? 'bg-yellow-100 text-yellow-800'
+                          : 'bg-red-100 text-red-800'
+                      }`}
+                    >
+                      {(resume.match_score * 100).toFixed(0)}% match
+                    </span>
+                    <button
+                      className="text-sm text-blue-600 hover:text-blue-800"
+                      onClick={() =>
+                        setExpandedId(expandedId === resume.id ? null : resume.id)
+                      }
+                    >
+                      {expandedId === resume.id ? 'Hide' : 'View'}
+                    </button>
+                  </div>
                 </div>
-                <p className="text-sm text-gray-600 mb-3">
-                  {resume.summary.split('\n')[0]}...
-                </p>
-                <button
-                  className="text-sm text-blue-600 hover:text-blue-800"
-                  onClick={() => {
-                    // Implement view details functionality
-                    alert(`View full details for resume ${resume.id}`);
-                  }}
-                >
-                  View Full Resume
-                </button>
+
+                {expandedId === resume.id && (
+                  <div className="border-t bg-gray-50 p-4">
+                    <p className="text-sm whitespace-pre-line">{resume.summary}</p>
+                  </div>
+                )}
               </div>
             ))}
           </div>
         </div>
+      )}
+
+      {!loading && matchedResumes.length === 0 && jobDescription && (
+        <p className="mt-4 text-sm text-gray-500 text-center">
+          No matching resumes found. Upload some resumes first.
+        </p>
       )}
     </div>
   );

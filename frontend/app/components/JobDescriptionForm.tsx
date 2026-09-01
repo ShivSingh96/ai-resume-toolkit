@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import axios from 'axios';
 
-const API_URL = 'http://localhost:8000';
+import { API_BASE } from '../../lib/api';
+const API_URL = API_BASE;
 
 interface JobDescriptionFormProps {
   resumeIds: string[];
@@ -70,13 +71,12 @@ export default function JobDescriptionForm({ resumeIds }: JobDescriptionFormProp
             Ranking {resumeIds.length} candidates for job fit
           </p>
           <div className="mt-2">
-            <select 
-              className="border rounded p-2 w-full" 
+            <select
+              className="border rounded p-2 w-full"
               value={mode}
               onChange={(e) => setMode(e.target.value as 'gaps' | 'rank')}
             >
               <option value="rank">Rank Candidates</option>
-              {resumeIds.length === 1 && <option value="gaps">Identify Skill Gaps</option>}
             </select>
           </div>
         </div>

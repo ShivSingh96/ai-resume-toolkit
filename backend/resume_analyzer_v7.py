@@ -184,50 +184,66 @@ class ResumeValidator:
         explanation_text = ", ".join(explanation)
         return is_resume, confidence, explanation_text
     
+def build_resume_prompt(text: str) -> str:
+    """Build the standard resume analysis prompt. Importable by the API."""
+    return (
+        "You are an expert resume analyst. Extract and summarize the professional information from the resume below.\n"
+        "Output clean Markdown: use ## for section headings, **bold** for company names and emphasis, "
+        "and - for bullet points. Omit personal contact details. Only include the highest academic degree.\n\n"
+        "Use exactly this structure — no other text before or after:\n\n"
+        "## Profile\n"
+        "2-3 sentences: years of experience, current role, and core area of expertise.\n\n"
+        "## Skills\n"
+        "Group into 2-4 categories on separate lines. Format each line: **Category Name:** skill1, skill2, skill3\n\n"
+        "## Experience\n"
+        "For each role (most recent first):\n"
+        "**Company Name** — Job Title *(Start – End)*\n"
+        "- Key achievement or responsibility with specific metrics or technologies\n\n"
+        "## Projects\n"
+        "1-3 notable projects. Format: **Project Name** — one sentence on technical complexity and impact.\n\n"
+        "## Education\n"
+        "Highest degree and institution only. Include technical certifications if present.\n\n"
+        "Resume:\n" + text
+    )
+
+
 class OllamaClient:
-    """Handles communication with Ollama API"""
-    
+    """Direct Ollama client — used by the CLI. The API uses llm_provider instead."""
+
     def __init__(self, endpoint: str = OLLAMA_ENDPOINT, timeout: int = REQUEST_TIMEOUT):
         self.endpoint = endpoint
         self.timeout = timeout
-    
+
     def summarize_resume(self, text: str, model: str, retries: int = MAX_RETRIES) -> str:
         if not text.strip():
             raise ResumeAnalyzerError("Resume text is empty")
-        
-        prompt = self._build_prompt(text)
-        
-        # Try with retries for timeout errors
+
+        prompt = build_resume_prompt(text)
+
         attempt = 0
         while attempt <= retries:
             try:
-                # logger.info(f"Sending request to Ollama (attempt {attempt+1}/{retries+1})")
                 response = requests.post(
                     self.endpoint,
-                    json={
-                        "model": model,
-                        "prompt": prompt,
-                        "stream": False
-                    },
-                    timeout=self.timeout
+                    json={"model": model, "prompt": prompt, "stream": False},
+                    timeout=self.timeout,
                 )
                 response.raise_for_status()
-                
+
                 result = response.json()
                 if "response" not in result:
                     raise ResumeAnalyzerError("Invalid response format from Ollama")
-                
                 return result["response"]
-                
+
             except requests.exceptions.Timeout:
                 attempt += 1
                 if attempt <= retries:
-                    wait_time = 2 ** attempt  # Exponential backoff
-                    logger.warning(f"Request timed out. Retrying in {wait_time} seconds... ({attempt}/{retries})")
+                    wait_time = 2 ** attempt
+                    logger.warning(f"Timeout. Retrying in {wait_time}s... ({attempt}/{retries})")
                     time.sleep(wait_time)
                 else:
                     raise ResumeAnalyzerError(
-                        f"Request timed out after {retries+1} attempts. Try increasing the timeout with --timeout option."
+                        f"Timed out after {retries + 1} attempts. Try --timeout to increase."
                     )
             except requests.exceptions.ConnectionError:
                 raise ResumeAnalyzerError("Cannot connect to Ollama. Is it running?")
@@ -235,45 +251,6 @@ class OllamaClient:
                 raise ResumeAnalyzerError(f"API request failed: {e}")
             except Exception as e:
                 raise ResumeAnalyzerError(f"Unexpected error: {e}")
-    
-    def _build_prompt(self, text: str) -> str:
-        """Build a comprehensive resume analysis prompt"""
-        
-        return """
-You are an expert resume analyst helping recruiters and interviewers quickly assess candidates.
-Extract and summarize the key information from the resume below.
-Use clear formatting with headings, bullet points, and emojis for better readability.
-Focus only on professional qualifications and skills.
-Ignore personal details like address, phone number, etc.
-
-⚠️ IMPORTANT INSTRUCTION: Under NO circumstances include high school, secondary school, or non-college education in your summary. ONLY include the single highest degree (Bachelor's, Master's, PhD).
-
-Create a comprehensive professional summary including:
-
-📋 PROFILE:
-- Years of experience + current role
-- 1-2 sentence overview of candidate background
-
-💻 SKILLS:
-- List ONLY the most important technical skills (max 2-5)
-- Group related skills together (max 2-5)
-
-🏢 EXPERIENCE:
-- Current/most recent company and role (with dates)
-- Previous roles with company names and timeframes
-- Max 2-3 responsibilities and notable achievements in each role
-
-🚀 PROJECTS:
-- 1-3 notable projects with very brief descriptions
-- Focus on technical complexity and impact
-
-🎓 EDUCATION:
-- ONLY include the single highest academic degree (bachelor's, master's, etc.)
-- Do NOT include high school, secondary education, or multiple degrees
-- Only add certifications if they are technical or professional certifications
-
-Resume Content:
-""" + text
 
 class ResumeAnalyzer:
     """Main application class"""
