@@ -410,9 +410,19 @@ async def job_recommendations(request: JobRecommendationRequest):
 
 _KEYWORD_EXTRACT_PROMPT = """From this resume summary extract job search information.
 Respond ONLY with a JSON object — no markdown, no extra text:
-{{"search_query": "<3-5 word job title + top tech skill>", "top_skills": ["skill1", "skill2", "skill3", "skill4", "skill5"]}}
+{{
+  "search_titles": ["<title1>", "<title2>", "<title3>"],
+  "top_skills":    ["skill1", "skill2", "skill3", "skill4", "skill5"]
+}}
 
-Example: {{"search_query": "Senior DevOps Engineer Kubernetes AWS", "top_skills": ["Kubernetes", "AWS", "Terraform", "Python", "CI/CD"]}}
+Rules for search_titles:
+- List 2-3 distinct job titles that match this candidate's profile
+- Use standard titles exactly as posted on job boards (Adzuna, LinkedIn, Indeed)
+- If the candidate has a hybrid/multi-domain role (e.g. Cloud + Platform + SRE), include one title per domain
+- Order from most specific to most general
+- Title format: 2-4 words, NO skills appended, NO "Senior"/"Lead" prefix
+- Examples: "Site Reliability Engineer", "Platform Engineer", "Cloud Infrastructure Engineer"
+- NOT: "Senior SRE Kubernetes AWS" or "Cloud Platform DevOps"
 
 Resume summary:
 {summary}
@@ -442,45 +452,59 @@ async def job_discovery(request: JobDiscoveryRequest):
     if not summary:
         raise HTTPException(status_code=400, detail="Resume has no summary. Re-analyze it first.")
 
-    # Extract search keywords from resume summary via LLM
+    # Extract search titles and skills from resume summary via LLM
     try:
         raw = _provider.generate_filtered(_KEYWORD_EXTRACT_PROMPT.format(summary=summary[:800]))
         raw = re.sub(r"```(?:json)?", "", raw).strip().rstrip("`").strip()
         kw_data = json.loads(raw)
-        search_query = kw_data.get("search_query", "software engineer")
-        top_skills   = kw_data.get("top_skills", [])
+        search_titles = kw_data.get("search_titles", ["software engineer"])
+        if not isinstance(search_titles, list) or not search_titles:
+            search_titles = ["software engineer"]
+        top_skills = kw_data.get("top_skills", [])
     except Exception:
-        search_query = "software engineer"
-        top_skills   = []
+        search_titles = ["software engineer"]
+        top_skills    = []
 
-    # Call Adzuna Search API
-    country = request.country_code or "in"
-    params = {
-        "app_id":           adzuna_id,
-        "app_key":          adzuna_key,
-        "results_per_page": 10,
-        "what":             search_query,
-        "content-type":     "application/json",
-        "sort_by":          "relevance",
-    }
-    if request.location:
-        params["where"] = request.location
-
-    try:
+    def _adzuna_fetch(title: str, country: str, location: str | None) -> list:
+        params = {
+            "app_id":           adzuna_id,
+            "app_key":          adzuna_key,
+            "results_per_page": 10,
+            "what":             title,
+            "content-type":     "application/json",
+            "sort_by":          "relevance",
+        }
+        if location:
+            params["where"] = location
         resp = httpx.get(
             f"https://api.adzuna.com/v1/api/jobs/{country}/search/1",
             params=params,
             timeout=15,
         )
         resp.raise_for_status()
+        return resp.json().get("results", [])
+
+    country = request.country_code or "in"
+
+    # Search all titles, deduplicate by redirect_url
+    seen_urls: set = set()
+    raw_results: list = []
+    try:
+        for title in search_titles[:3]:  # cap at 3 searches
+            for j in _adzuna_fetch(title, country, request.location):
+                url = j.get("redirect_url", "")
+                if url and url not in seen_urls:
+                    seen_urls.add(url)
+                    raw_results.append(j)
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=502, detail=f"Adzuna API returned {e.response.status_code}. Check your API keys.")
     except httpx.RequestError as e:
         raise HTTPException(status_code=502, detail=f"Could not reach Adzuna: {e}")
 
-    data = resp.json()
+    search_query = " · ".join(search_titles[:3])
+
     jobs = []
-    for j in data.get("results", []):
+    for j in raw_results:
         desc  = j.get("description", "")
         title = j.get("title", "")
         sal_min = j.get("salary_min")
@@ -509,7 +533,7 @@ async def job_discovery(request: JobDiscoveryRequest):
         "search_query": search_query,
         "top_skills":   top_skills,
         "country":      country,
-        "total":        data.get("count", len(jobs)),
+        "total":        len(jobs),
         "jobs":         jobs,
     }
 
