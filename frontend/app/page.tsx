@@ -47,10 +47,10 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen" style={{ background: "#f0f7fa" }}>
       {/* Sticky header */}
       <header className="bg-white border-b border-gray-100 sticky top-0 z-20 shadow-sm">
-        <div className="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-sky-500 to-teal-500 flex items-center justify-center">
               <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -58,7 +58,7 @@ export default function Home() {
                   d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
             </div>
-            <span className="text-sm font-bold text-gray-900">Resume Analyzer</span>
+            <span className="text-sm font-bold text-gray-900">AI Resume Toolkit</span>
           </div>
           {providerInfo && (
             <div className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">
@@ -71,20 +71,20 @@ export default function Home() {
 
       {/* Hero banner */}
       <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-blue-950">
-        <div className="max-w-5xl mx-auto px-6 py-10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
           <p className="text-sky-400 text-xs font-bold uppercase tracking-widest mb-2">AI-Powered</p>
-          <h1 className="text-3xl font-black text-white mb-2 leading-tight">
+          <h1 className="text-2xl sm:text-3xl font-black text-white mb-2 leading-tight">
             Resume Toolkit
           </h1>
-          <p className="text-slate-400 text-sm">
+          <p className="text-slate-400 text-xs sm:text-sm">
             Score ATS compatibility · Find matching jobs · Prepare for interviews
           </p>
         </div>
       </div>
 
       {/* Tab nav — floats up from hero */}
-      <div className="max-w-5xl mx-auto px-6">
-        <div className="bg-white rounded-2xl shadow-lg border border-gray-200/80 grid grid-cols-3 gap-1.5 p-1.5 -mt-5 relative z-10">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6">
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-200/80 grid grid-cols-3 gap-1 p-1.5 -mt-5 relative z-10">
           {([
             {
               id: "find-jobs" as View,
@@ -119,35 +119,28 @@ export default function Home() {
                 </svg>
               ),
             },
-          ] as const).map((tab, idx) => {
+          ] as const).map((tab) => {
             const active = view === tab.id;
             return (
               <button
                 key={tab.id}
                 onClick={() => setView(tab.id)}
-                className={`flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all duration-200 ${
+                className={`flex flex-col sm:flex-row items-center sm:items-start gap-1.5 sm:gap-3 px-2 sm:px-4 py-2.5 sm:py-3 rounded-xl text-center sm:text-left transition-all duration-200 ${
                   active
                     ? "bg-gradient-to-r from-sky-500 to-teal-500 shadow-md shadow-sky-200/60"
                     : "hover:bg-gray-50"
                 }`}
               >
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center shrink-0 ${
                   active ? "bg-white/20" : "bg-gray-100"
                 }`}>
                   <span className={active ? "text-white" : "text-gray-500"}>{tab.icon}</span>
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className={`text-sm font-semibold ${active ? "text-white" : "text-gray-700"}`}>
-                      {tab.label}
-                    </span>
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                      active ? "bg-white/20 text-white" : "bg-gray-100 text-gray-400"
-                    }`}>
-                      {String(idx + 1).padStart(2, "0")}
-                    </span>
-                  </div>
-                  <span className={`block text-xs truncate ${active ? "text-sky-100" : "text-gray-400"}`}>
+                  <span className={`block text-xs sm:text-sm font-semibold leading-tight ${active ? "text-white" : "text-gray-700"}`}>
+                    {tab.label}
+                  </span>
+                  <span className={`hidden sm:block text-xs truncate mt-0.5 ${active ? "text-sky-100" : "text-gray-400"}`}>
                     {tab.sub}
                   </span>
                 </div>
@@ -158,7 +151,7 @@ export default function Home() {
       </div>
 
       {/* Tab content */}
-      <main className="max-w-5xl mx-auto px-6 py-6">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
         {view === "find-jobs" && (
           <FindJobs
             result={findJobsResult}
