@@ -1,181 +1,181 @@
-# Resume Analyzer
+# AI Resume Toolkit
 
-A powerful AI-powered resume analysis tool built with FastAPI, Ollama, and Next.js. This application analyzes resumes, extracts key information, compares candidates, matches resumes with job descriptions, detects AI-generated content, and more.
+An AI-powered resume tool for job seekers. Upload your resume once — get a career fit analysis, live job listings, ATS compatibility score, and interview prep guides.
 
-## Table of Contents
-
-- Features
-- System Requirements
-- Installation
-- Usage
-- Technical Architecture
-- Troubleshooting
-
-## Features
-
-### Core Functionality
-- **Resume Upload & Analysis**: Upload resumes in PDF, DOCX, or TXT format and get AI-generated summaries
-- **Resume Storage**: Save analyzed resumes for later reference and comparison
-- **Resume Management**: View, search, and manage your resume database
-
-### Phase 2: Resume Comparison
-- **Multi-Resume Comparison**: Compare multiple candidates side-by-side
-- **Skill Gap Analysis**: Identify missing skills between a resume and job requirements
-- **Candidate Ranking**: Rank multiple candidates for a specific job
-
-### Phase 3: Enhanced Comparison
-- **Resume Selection**: Select specific resumes for detailed comparison
-- **Job Description Analysis**: Match resumes against job descriptions
-- **Expanded Visualization**: View detailed comparisons with strengths and weaknesses
-
-### Phase 4: Advanced Features
-- **Job Matching**: Upload job descriptions and find matching candidates
-- **Follow-up Questions**: Generate clarifying questions for ambiguous resumes
-- **Fake Resume Detection**: Identify potentially AI-generated or fraudulent resumes
-- **Feedback System**: Provide feedback to improve analysis quality
-
-## System Requirements
-
-- **Python 3.8+**
-- **Node.js 16+**
-- **Ollama** running locally or on a server
-- **At least 8GB RAM** (16GB recommended for better performance)
-
-## Installation
-
-### Backend Setup
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/resume-analyzer.git
-   cd resume-analyzer
-   ```
-
-2. Create a Python virtual environment:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-3. Install backend dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. Install and start Ollama (if not already running):
-   ```bash
-   # Follow Ollama installation instructions at https://ollama.ai/
-   # Pull the required model
-   ollama pull llama3
-   ```
-
-5. Start the backend server:
-   ```bash
-   cd resume-analyzer-backend
-   python resume_analyzer_api.py
-   ```
-   The API will be available at http://localhost:8000
-
-### Frontend Setup
-
-1. Install frontend dependencies:
-   ```bash
-   cd resume-analyzer-ui
-   npm install
-   ```
-
-2. Start the development server:
-   ```bash
-   npm run dev
-   ```
-   The UI will be available at http://localhost:3000
-
-## Usage
-
-### Upload and Analyze Resumes
-
-1. From the main page, click on "Upload Resume"
-2. Drag and drop your resume file (PDF, DOCX, or TXT)
-3. Click "Analyze Resume" and wait for the AI to process it
-4. View the comprehensive summary of the candidate
-5. Provide feedback using the thumbs up/down buttons
-
-### Manage Resumes
-
-1. Click on "Manage Resumes" in the navigation bar
-2. View all previously analyzed resumes
-3. Select resumes by checking the boxes
-4. Click "Compare Selected Resumes" to see a detailed comparison
-5. Click "Expand" on any resume to see its full details
-6. Generate follow-up questions for ambiguous resumes
-
-### Job Description Analysis
-
-1. From the "Manage Resumes" view, select one or more resumes
-2. Scroll down to the Job Description form
-3. Paste a job description in the text area
-4. Click "Identify Skill Gaps" (for single resume) or "Rank Candidates" (for multiple resumes)
-5. Review the analysis results
-
-### Job Matcher
-
-1. Click on "Job Matcher" in the navigation bar
-2. Upload a job description file or paste text directly
-3. Click "Find Matching Resumes"
-4. Review the list of matching candidates ranked by relevance
-
-### Fake Resume Detection
-
-1. Click on "Fake Detector" in the navigation bar
-2. Upload a resume you want to verify
-3. Click "Analyze Resume"
-4. Review the analysis for signs of AI generation or suspicious content
-5. Check the confidence score and specific red flags identified
-
-## Technical Architecture
-
-### Backend Components
-
-- **FastAPI Server**: Handles HTTP requests and orchestrates the analysis process
-- **Resume Analyzer Core**: Extracts and processes resume text
-- **Ollama Client**: Connects to Ollama for LLM inference
-- **Agent System**: Specialized AI agents for different analysis tasks
-- **Vector Database**: Stores resume embeddings for semantic search
-
-### Frontend Components
-
-- **Next.js Application**: React-based UI with server-side rendering
-- **Resume Manager**: Interface for viewing and managing resumes
-- **Job Description Form**: Interface for job matching and skill gap analysis
-- **Fake Detector**: Interface for detecting AI-generated resumes
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Backend connection errors**:
-   - Ensure the backend server is running at http://localhost:8000
-   - Check if Ollama is running and accessible
-
-2. **File upload errors**:
-   - Verify the file is in a supported format (PDF, DOCX, TXT)
-   - Ensure the file size is reasonable (under 10MB)
-
-3. **Slow analysis times**:
-   - LLM inference can take time, especially on first run
-   - Consider using a more powerful machine or GPU acceleration
-
-4. **"No resumes found" error**:
-   - Upload some resumes first before using comparison features
-   - Check if the backend storage is properly initialized
-
-### Getting Help
-
-If you encounter issues not covered here, please:
-1. Check the console logs in both frontend and backend
-2. Verify all dependencies are correctly installed
-3. Create an issue in the GitHub repository with detailed information
+Runs entirely on **free APIs** (Groq + Adzuna + Supabase). No GPU, no local models required.
 
 ---
 
-Built with ❤️ using FastAPI, Next.js, and Ollama
+## Features
+
+- **Find Jobs** — AI analyses your resume, recommends best-fit roles, and searches live job listings via Adzuna
+- **ATS Score** — checks resume compatibility with Applicant Tracking Systems with a section-by-section breakdown
+- **Interview Prep** — generates curated resource guides for any target role
+
+## Tech Stack
+
+| Layer | Tech |
+|---|---|
+| Backend | Python, FastAPI |
+| LLM | Groq (free) · Gemini · OpenAI · Anthropic |
+| Job listings | Adzuna API (free tier: 1000 req/day) |
+| Vector search | ChromaDB (in-memory when hosted, disk for local dev) |
+| Document parsing | PyMuPDF, python-docx |
+| Frontend | Next.js 15, TypeScript, Tailwind CSS |
+| Persistence | Supabase (Postgres + Storage) when deployed |
+
+## Quick Start (Docker)
+
+```bash
+# 1. Clone
+git clone https://github.com/YOUR_USERNAME/ai-resume-toolkit.git
+cd ai-resume-toolkit
+
+# 2. Configure
+cp .env.example .env
+# Edit .env — add your GROQ_API_KEY (free at https://console.groq.com)
+# Add ADZUNA_APP_ID and ADZUNA_APP_KEY (free at https://developer.adzuna.com)
+
+# 3. Run
+docker compose up
+```
+
+Open http://localhost:3000
+
+---
+
+## Manual Setup
+
+### Backend
+
+```bash
+cd backend
+
+python -m venv venv
+source venv/bin/activate   # Windows: venv\Scripts\activate
+
+pip install .
+
+# Copy and fill in your keys
+cp .env.example .env
+
+uvicorn resume_analyzer_api:app --reload --port 8000
+```
+
+API docs: http://localhost:8000/docs
+
+### Frontend
+
+```bash
+cd frontend
+
+npm install
+
+# Point at the backend
+echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > .env.local
+
+npm run dev
+```
+
+Open http://localhost:3000
+
+---
+
+## LLM Providers
+
+| Provider | Cost | Sign-up |
+|---|---|---|
+| **Groq** (recommended) | Free | https://console.groq.com |
+| Google Gemini | Free | https://aistudio.google.com |
+| OpenAI | Paid | https://platform.openai.com |
+| Anthropic | Paid | https://console.anthropic.com |
+| Ollama | Free (local) | https://ollama.com |
+
+---
+
+## Deployment (fully free)
+
+| Service | Platform | Cost |
+|---|---|---|
+| Frontend | Vercel | Free |
+| Backend | Render | Free (sleeps after 15 min inactivity) |
+| Database + Storage | Supabase | Free |
+
+### Supabase setup
+
+1. Create a free project at https://supabase.com
+2. Run in SQL Editor:
+
+```sql
+CREATE TABLE resumes (
+  id          TEXT PRIMARY KEY,
+  summary     TEXT,
+  resume_text TEXT,
+  metadata    JSONB        DEFAULT '{}',
+  feedback    JSONB        DEFAULT '[]',
+  created_at  TIMESTAMPTZ  DEFAULT NOW()
+);
+
+ALTER TABLE resumes DISABLE ROW LEVEL SECURITY;
+```
+
+3. Create a Storage bucket named `resume-files` (private)
+4. Copy **Project URL** and **service_role key** from Project Settings → API
+
+### Render (backend)
+
+- **Root directory**: `backend`
+- **Build command**: `pip install uv && uv pip install --system .`
+- **Start command**: `uvicorn resume_analyzer_api:app --host 0.0.0.0 --port $PORT`
+- Add all env vars from `.env.example` plus `SUPABASE_URL` and `SUPABASE_KEY`
+
+### Vercel (frontend)
+
+- **Root directory**: `frontend`
+- **Framework**: Next.js (auto-detected)
+- **Env var**: `NEXT_PUBLIC_API_URL` = your Render backend URL
+
+---
+
+## Project Structure
+
+```
+ai-resume-toolkit/
+├── .env.example               # Root env vars — copy to .env
+├── docker-compose.yml
+├── backend/
+│   ├── Dockerfile
+│   ├── pyproject.toml
+│   ├── llm_provider.py        # Multi-provider LLM abstraction
+│   ├── resume_analyzer_api.py # FastAPI app + all endpoints
+│   ├── resume_agents.py       # ResumeStore, agent classes
+│   └── resume_analyzer_v7.py  # File extraction and validation
+└── frontend/
+    ├── Dockerfile
+    ├── package.json
+    └── app/
+        ├── page.tsx
+        ├── layout.tsx
+        └── components/
+            ├── FindJobs.tsx       # Job search + career fit
+            ├── ATSChecker.tsx     # ATS score gauge
+            └── Resources.tsx      # Interview prep guides
+```
+
+## API Endpoints
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/provider-info` | Active LLM provider and model |
+| POST | `/upload` | Upload resume file |
+| POST | `/summarize` | Analyse uploaded resume |
+| GET | `/resumes` | List all stored resumes |
+| POST | `/job-recommendations` | AI career fit + role recommendations |
+| POST | `/job-discovery` | Live job listings via Adzuna |
+| POST | `/ats-check` | ATS compatibility analysis |
+| POST | `/interview-resources` | Interview prep guide for a role |
+| POST | `/feedback` | Thumbs up/down on a summary |
+
+## License
+
+MIT
