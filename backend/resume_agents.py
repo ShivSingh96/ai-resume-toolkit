@@ -138,8 +138,11 @@ class ResumeStore:
     def get_resume(self, resume_id: str) -> Optional[Dict]:
         return self.resumes["resumes"].get(resume_id)
 
-    def get_all_resumes(self) -> List[Dict]:
-        return [{"id": k, **v} for k, v in self.resumes["resumes"].items()]
+    def get_all_resumes(self, client_id: str = None) -> List[Dict]:
+        all_r = [{"id": k, **v} for k, v in self.resumes["resumes"].items()]
+        if client_id:
+            all_r = [r for r in all_r if r.get("metadata", {}).get("client_id") == client_id]
+        return all_r
 
     def search_resumes(self, query: str, n_results: int = 5) -> List[Dict]:
         results = self._collection.query(query_texts=[query], n_results=n_results)
