@@ -28,7 +28,7 @@ Runs entirely on **free APIs** (Groq + Adzuna + Supabase). No GPU, no local mode
 
 ```bash
 # 1. Clone
-git clone https://github.com/YOUR_USERNAME/ai-resume-toolkit.git
+git clone https://github.com/ShivSingh96/ai-resume-toolkit.git
 cd ai-resume-toolkit
 
 # 2. Configure
