@@ -145,7 +145,10 @@ class GroqProvider(BaseLLMProvider):
                 f"Requested Groq model '{requested}' is unavailable and no known fallback was found. "
                 f"Available models: {available}. Update LLM_MODEL in your .env to one of: {self._FALLBACK_MODELS}"
             )
+        except ValueError:
+            raise  # re-raise our own clear error — don't swallow it
         except Exception as exc:
+            # API call failed (network, auth) — trust the caller's model name and proceed
             logger.warning("Could not list Groq models (%s); using '%s' as requested", exc, requested)
         return requested
 
@@ -320,7 +323,7 @@ def get_provider() -> BaseLLMProvider:
         api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
             raise ValueError("LLM_PROVIDER=groq requires GROQ_API_KEY. Get a free key at https://console.groq.com")
-        model = os.getenv("LLM_MODEL", "llama3-70b-8192")
+        model = os.getenv("LLM_MODEL", PROVIDER_INFO["groq"]["default_model"])
         return GroqProvider(api_key=api_key, model=model)
 
     if provider_name == "gemini":
