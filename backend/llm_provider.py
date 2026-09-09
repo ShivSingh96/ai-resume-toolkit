@@ -22,8 +22,8 @@ PROVIDER_INFO = {
     "groq": {
         "display_name": "Groq",
         "free_tier": True,
-        "default_model": "qwen/qwen3.8-27b",
-        "available_models": ["qwen/qwen3.8-27b", "qwen/qwen3.6-27b", "groq/compound", "openai/gpt-oss-20b"],
+        "default_model": "llama-3.1-8b-instant",
+        "available_models": ["llama-3.1-8b-instant", "llama3-70b-8192", "llama3-8b-8192", "gemma2-9b-it"],
         "signup_url": "https://console.groq.com",
     },
     "gemini": {
@@ -116,15 +116,15 @@ class BaseLLMProvider(ABC):
 
 class GroqProvider(BaseLLMProvider):
     # Ordered preference list — first match wins when the requested model isn't available.
-    # Only include first-party Meta/Google models; third-party models may require separate terms acceptance.
+    # Prefer high-OTPM models; avoid third-party models that may require separate terms acceptance.
     _FALLBACK_MODELS = [
-        "qwen/qwen3.8-27b",
-        "qwen/qwen3.6-27b",
-        "groq/compound",
-        "openai/gpt-oss-20b",
+        "llama-3.1-8b-instant",
+        "llama3-70b-8192",
+        "llama3-8b-8192",
+        "gemma2-9b-it",
     ]
 
-    def __init__(self, api_key: str, model: str = "qwen/qwen3.8-27b"):
+    def __init__(self, api_key: str, model: str = "llama-3.1-8b-instant"):
         from groq import Groq
         self._client = Groq(api_key=api_key)
         self._model = self._resolve_model(model)
@@ -160,25 +160,58 @@ class GroqProvider(BaseLLMProvider):
     def model_name(self) -> str:
         return self._model
 
+    def _models_by_priority(self) -> list:
+        """Current model first, then fallbacks — deduped, preserving order."""
+        seen = {self._model}
+        result = [self._model]
+        for m in self._FALLBACK_MODELS:
+            if m not in seen:
+                seen.add(m)
+                result.append(m)
+        return result
+
     def generate(self, prompt: str) -> str:
-        response = self._client.chat.completions.create(
-            model=self._model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-        )
-        return response.choices[0].message.content
+        from groq import RateLimitError
+        last_err = None
+        for model in self._models_by_priority():
+            try:
+                response = self._client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                )
+                if model != self._model:
+                    logger.warning("Rate limit on '%s'; auto-switched to '%s'", self._model, model)
+                    self._model = model  # persist so future calls start here
+                return response.choices[0].message.content
+            except RateLimitError as e:
+                logger.warning("Rate limit on '%s'; trying next fallback model", model)
+                last_err = e
+        raise last_err
 
     def generate_stream(self, prompt: str) -> Generator[str, None, None]:
-        stream = self._client.chat.completions.create(
-            model=self._model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            stream=True,
-        )
-        for chunk in stream:
-            delta = chunk.choices[0].delta.content
-            if delta:
-                yield delta
+        from groq import RateLimitError
+        last_err = None
+        for model in self._models_by_priority():
+            try:
+                stream = self._client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                    stream=True,
+                )
+                if model != self._model:
+                    logger.warning("Rate limit on '%s'; auto-switched to '%s'", self._model, model)
+                    self._model = model
+                for chunk in stream:
+                    delta = chunk.choices[0].delta.content
+                    if delta:
+                        yield delta
+                return
+            except RateLimitError as e:
+                logger.warning("Rate limit on '%s'; trying next fallback model", model)
+                last_err = e
+        raise last_err
 
 
 class GeminiProvider(BaseLLMProvider):
