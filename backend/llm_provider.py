@@ -27,7 +27,9 @@ PROVIDER_INFO = {
             "llama-3.1-8b-instant",  # tier 1 — fast, short tasks
             "llama3-8b-8192",        # tier 2 — medium tasks
             "llama3-70b-8192",       # tier 3 — long/complex tasks
-            "gemma2-9b-it",          # tier 4 — highest free TPM, last resort
+            "groq/compound-mini",    # tier 4 — 70K TPM, no daily limit
+            "groq/compound",         # tier 5 — 70K TPM, no daily limit
+            "gemma2-9b-it",          # tier 6 — fallback
         ],
         "signup_url": "https://console.groq.com",
     },
@@ -127,7 +129,9 @@ class GroqProvider(BaseLLMProvider):
         (1500,  "llama-3.1-8b-instant"),  # fast; keyword extract, short JSON tasks
         (6000,  "llama3-8b-8192"),        # balanced; ATS check, job recommendations
         (15000, "llama3-70b-8192"),       # capable; long resume summarisation
-        (None,  "gemma2-9b-it"),          # highest free-tier TPM; last resort
+        (15000, "groq/compound-mini"),    # 70K TPM, no daily limit — high capacity
+        (None,  "groq/compound"),         # 70K TPM, no daily limit — best free option
+        (None,  "gemma2-9b-it"),          # fallback
     ]
 
     # Models that must never be auto-selected — they require separate terms acceptance.
@@ -388,44 +392,128 @@ class OllamaProvider(BaseLLMProvider):
                         break
 
 
+class FallbackProvider(BaseLLMProvider):
+    """Wraps multiple providers; escalates to the next on rate limit / quota errors."""
+
+    def __init__(self, providers: list):
+        self._providers = providers
+
+    @staticmethod
+    def _is_rate_limit(exc: Exception) -> bool:
+        name = type(exc).__name__.lower()
+        msg  = str(exc).lower()
+        return (
+            "ratelimit" in name
+            or "429" in str(exc)
+            or "rate_limit" in msg
+            or "quota" in msg
+            or "resource_exhausted" in msg   # Google API code
+            or "otpm" in msg                 # Groq output-token-per-minute
+        )
+
+    @property
+    def provider_name(self) -> str:
+        return self._providers[0].provider_name
+
+    @property
+    def model_name(self) -> str:
+        names = " → ".join(
+            f"{p.provider_name}/{p.model_name}" for p in self._providers
+        )
+        return names
+
+    def generate(self, prompt: str) -> str:
+        last_err = None
+        for i, provider in enumerate(self._providers):
+            try:
+                return provider.generate(prompt)
+            except Exception as e:
+                if self._is_rate_limit(e) and i < len(self._providers) - 1:
+                    logger.warning(
+                        "Provider '%s' exhausted; falling back to '%s'",
+                        provider.provider_name,
+                        self._providers[i + 1].provider_name,
+                    )
+                    last_err = e
+                else:
+                    raise
+        raise last_err
+
+    def generate_stream(self, prompt: str) -> Generator[str, None, None]:
+        last_err = None
+        for i, provider in enumerate(self._providers):
+            try:
+                yield from provider.generate_stream(prompt)
+                return
+            except Exception as e:
+                if self._is_rate_limit(e) and i < len(self._providers) - 1:
+                    logger.warning(
+                        "Provider '%s' exhausted; falling back to '%s'",
+                        provider.provider_name,
+                        self._providers[i + 1].provider_name,
+                    )
+                    last_err = e
+                else:
+                    raise
+        raise last_err
+
+
 def get_provider() -> BaseLLMProvider:
-    """Instantiate the provider configured via env vars."""
+    """
+    Instantiate the primary provider from LLM_PROVIDER env var.
+    If GEMINI_API_KEY is set and primary is not already Gemini,
+    Gemini is appended as an automatic rate-limit fallback.
+    """
     provider_name = os.getenv("LLM_PROVIDER", "groq").lower()
+    providers: list = []
 
     if provider_name == "groq":
         api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
             raise ValueError("LLM_PROVIDER=groq requires GROQ_API_KEY. Get a free key at https://console.groq.com")
-        return GroqProvider(api_key=api_key)
+        providers.append(GroqProvider(api_key=api_key))
 
-    if provider_name == "gemini":
+    elif provider_name == "gemini":
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise ValueError("LLM_PROVIDER=gemini requires GEMINI_API_KEY. Get a free key at https://aistudio.google.com")
         model = os.getenv("LLM_MODEL", PROVIDER_INFO["gemini"]["default_model"])
-        return GeminiProvider(api_key=api_key, model=model)
+        providers.append(GeminiProvider(api_key=api_key, model=model))
 
-    if provider_name == "openai":
+    elif provider_name == "openai":
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise ValueError("LLM_PROVIDER=openai requires OPENAI_API_KEY.")
         model = os.getenv("LLM_MODEL", PROVIDER_INFO["openai"]["default_model"])
-        return OpenAIProvider(api_key=api_key, model=model)
+        providers.append(OpenAIProvider(api_key=api_key, model=model))
 
-    if provider_name == "anthropic":
+    elif provider_name == "anthropic":
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
             raise ValueError("LLM_PROVIDER=anthropic requires ANTHROPIC_API_KEY.")
         model = os.getenv("LLM_MODEL", PROVIDER_INFO["anthropic"]["default_model"])
-        return AnthropicProvider(api_key=api_key, model=model)
+        providers.append(AnthropicProvider(api_key=api_key, model=model))
 
-    if provider_name == "ollama":
+    elif provider_name == "ollama":
         endpoint = os.getenv("OLLAMA_ENDPOINT", "http://localhost:11434")
         model = os.getenv("LLM_MODEL", PROVIDER_INFO["ollama"]["default_model"])
-        return OllamaProvider(endpoint=endpoint, model=model)
+        providers.append(OllamaProvider(endpoint=endpoint, model=model))
 
-    valid = ", ".join(PROVIDER_INFO.keys())
-    raise ValueError(f"Unknown LLM_PROVIDER='{provider_name}'. Valid options: {valid}")
+    else:
+        valid = ", ".join(PROVIDER_INFO.keys())
+        raise ValueError(f"Unknown LLM_PROVIDER='{provider_name}'. Valid options: {valid}")
+
+    # Auto-add Gemini as fallback when key is present and primary is not already Gemini
+    if provider_name != "gemini":
+        gemini_key = os.getenv("GEMINI_API_KEY")
+        if gemini_key:
+            providers.append(GeminiProvider(
+                api_key=gemini_key,
+                model=PROVIDER_INFO["gemini"]["default_model"],
+            ))
+            logger.info("Gemini added as automatic rate-limit fallback provider")
+
+    return providers[0] if len(providers) == 1 else FallbackProvider(providers)
 
 
 def get_provider_info(provider: BaseLLMProvider) -> dict:
