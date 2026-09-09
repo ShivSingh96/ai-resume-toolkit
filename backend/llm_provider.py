@@ -22,8 +22,13 @@ PROVIDER_INFO = {
     "groq": {
         "display_name": "Groq",
         "free_tier": True,
-        "default_model": "qwen/qwen3.8-27b",
-        "available_models": ["qwen/qwen3.8-27b", "qwen/qwen3.6-27b", "groq/compound", "openai/gpt-oss-20b"],
+        "default_model": "llama-3.1-8b-instant",
+        "available_models": [
+            "llama-3.1-8b-instant",  # tier 1 — fast, short tasks
+            "llama3-8b-8192",        # tier 2 — medium tasks
+            "llama3-70b-8192",       # tier 3 — long/complex tasks
+            "gemma2-9b-it",          # tier 4 — highest free TPM, last resort
+        ],
         "signup_url": "https://console.groq.com",
     },
     "gemini": {
@@ -115,42 +120,55 @@ class BaseLLMProvider(ABC):
 
 
 class GroqProvider(BaseLLMProvider):
-    # Ordered preference list — first match wins when the requested model isn't available.
-    # Only include first-party Meta/Google models; third-party models may require separate terms acceptance.
-    _FALLBACK_MODELS = [
-        "qwen/qwen3.8-27b",
-        "qwen/qwen3.6-27b",
-        "groq/compound",
-        "openai/gpt-oss-20b",
+    # Tiers ordered by prompt complexity (max prompt chars → model).
+    # Smaller/faster models handle short prompts; higher-capacity models handle long ones.
+    # On a rate-limit hit, the chain escalates through remaining tiers automatically.
+    _MODEL_TIERS: list = [
+        (1500,  "llama-3.1-8b-instant"),  # fast; keyword extract, short JSON tasks
+        (6000,  "llama3-8b-8192"),        # balanced; ATS check, job recommendations
+        (15000, "llama3-70b-8192"),       # capable; long resume summarisation
+        (None,  "gemma2-9b-it"),          # highest free-tier TPM; last resort
     ]
 
-    def __init__(self, api_key: str, model: str = "qwen/qwen3.8-27b"):
+    def __init__(self, api_key: str, model: str = "llama-3.1-8b-instant"):
         from groq import Groq
         self._client = Groq(api_key=api_key)
-        self._model = self._resolve_model(model)
+        self._available: set = self._fetch_available()
 
-    def _resolve_model(self, requested: str) -> str:
-        """Return requested model if it exists on this account; otherwise pick the best available."""
+    def _fetch_available(self) -> set:
+        """Fetch model IDs available on this Groq account at startup."""
         try:
-            available = [m.id for m in self._client.models.list().data]
-            if requested in available:
-                return requested
-            logger.warning("Groq model '%s' not available. Available: %s", requested, available)
-            for preferred in self._FALLBACK_MODELS:
-                if preferred in available:
-                    logger.warning("Falling back to '%s'", preferred)
-                    return preferred
-            # Do not fall back to arbitrary available[0] — unlisted models may require terms acceptance
-            raise ValueError(
-                f"Requested Groq model '{requested}' is unavailable and no known fallback was found. "
-                f"Available models: {available}. Update LLM_MODEL in your .env to one of: {self._FALLBACK_MODELS}"
-            )
+            ids = {m.id for m in self._client.models.list().data}
+            known = {m for _, m in self._MODEL_TIERS}
+            available = ids & known
+            if not available:
+                raise ValueError(
+                    f"None of the preferred Groq models are available on this account. "
+                    f"Enable one of {[m for _, m in self._MODEL_TIERS]} at https://console.groq.com"
+                )
+            return available
         except ValueError:
-            raise  # re-raise our own clear error — don't swallow it
+            raise
         except Exception as exc:
-            # API call failed (network, auth) — trust the caller's model name and proceed
-            logger.warning("Could not list Groq models (%s); using '%s' as requested", exc, requested)
-        return requested
+            logger.warning("Could not list Groq models (%s); will try all tier models", exc)
+            return {m for _, m in self._MODEL_TIERS}  # optimistic fallback
+
+    def _models_for_prompt(self, prompt: str) -> list:
+        """Return ordered model chain for this prompt: best fit first, then escalating tiers."""
+        prompt_len = len(prompt)
+        # Find the first tier whose capacity covers this prompt size
+        primary = self._MODEL_TIERS[-1][1]
+        for max_chars, model in self._MODEL_TIERS:
+            if (max_chars is None or prompt_len <= max_chars) and model in self._available:
+                primary = model
+                break
+        # Chain: primary first, then remaining tiers in ascending capacity order
+        chain = [primary]
+        for _, model in self._MODEL_TIERS:
+            if model not in chain and model in self._available:
+                chain.append(model)
+        logger.debug("Prompt len=%d → model chain: %s", prompt_len, chain)
+        return chain
 
     @property
     def provider_name(self) -> str:
@@ -158,27 +176,50 @@ class GroqProvider(BaseLLMProvider):
 
     @property
     def model_name(self) -> str:
-        return self._model
+        # Report the lightest available model as the active one
+        for _, model in self._MODEL_TIERS:
+            if model in self._available:
+                return model
+        return "unknown"
 
     def generate(self, prompt: str) -> str:
-        response = self._client.chat.completions.create(
-            model=self._model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-        )
-        return response.choices[0].message.content
+        from groq import RateLimitError
+        last_err = None
+        for model in self._models_for_prompt(prompt):
+            try:
+                response = self._client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                )
+                logger.debug("generate() used model '%s'", model)
+                return response.choices[0].message.content
+            except RateLimitError as e:
+                logger.warning("Rate limit on '%s'; escalating to next tier", model)
+                last_err = e
+        raise last_err
 
     def generate_stream(self, prompt: str) -> Generator[str, None, None]:
-        stream = self._client.chat.completions.create(
-            model=self._model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            stream=True,
-        )
-        for chunk in stream:
-            delta = chunk.choices[0].delta.content
-            if delta:
-                yield delta
+        from groq import RateLimitError
+        last_err = None
+        for model in self._models_for_prompt(prompt):
+            try:
+                stream = self._client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                    stream=True,
+                )
+                logger.debug("generate_stream() used model '%s'", model)
+                for chunk in stream:
+                    delta = chunk.choices[0].delta.content
+                    if delta:
+                        yield delta
+                return
+            except RateLimitError as e:
+                logger.warning("Rate limit on '%s'; escalating to next tier", model)
+                last_err = e
+        raise last_err
 
 
 class GeminiProvider(BaseLLMProvider):
