@@ -120,7 +120,7 @@ class BaseLLMProvider(ABC):
 
 
 class GroqProvider(BaseLLMProvider):
-    # Tiers ordered by prompt complexity (max prompt chars → model).
+    # Preferred tiers ordered by prompt complexity (max prompt chars → model).
     # Smaller/faster models handle short prompts; higher-capacity models handle long ones.
     # On a rate-limit hit, the chain escalates through remaining tiers automatically.
     _MODEL_TIERS: list = [
@@ -130,43 +130,75 @@ class GroqProvider(BaseLLMProvider):
         (None,  "gemma2-9b-it"),          # highest free-tier TPM; last resort
     ]
 
-    def __init__(self, api_key: str, model: str = "llama-3.1-8b-instant"):
+    # Models that must never be auto-selected — they require separate terms acceptance.
+    _BLOCKED_MODELS: frozenset = frozenset({
+        "canopylabs/orpheus-arabic-saudi",
+    })
+
+    def __init__(self, api_key: str):
         from groq import Groq
         self._client = Groq(api_key=api_key)
         self._available: set = self._fetch_available()
 
     def _fetch_available(self) -> set:
-        """Fetch model IDs available on this Groq account at startup."""
+        """
+        Fetch usable model IDs at startup.
+        Prefers the curated tier list; falls back to any model on the account
+        that isn't in the blocked list (avoids models requiring extra terms acceptance).
+        """
         try:
-            ids = {m.id for m in self._client.models.list().data}
-            known = {m for _, m in self._MODEL_TIERS}
-            available = ids & known
-            if not available:
-                raise ValueError(
-                    f"None of the preferred Groq models are available on this account. "
-                    f"Enable one of {[m for _, m in self._MODEL_TIERS]} at https://console.groq.com"
+            all_ids = {m.id for m in self._client.models.list().data}
+            preferred = {m for _, m in self._MODEL_TIERS}
+            tier_available = all_ids & preferred
+            if tier_available:
+                return tier_available
+            # Account doesn't have the preferred Llama/Gemma models — use whatever is accessible
+            fallback = all_ids - self._BLOCKED_MODELS
+            if fallback:
+                logger.warning(
+                    "Preferred tier models not on this account. Using: %s. "
+                    "For best rate limits, enable Llama/Gemma models at https://console.groq.com",
+                    sorted(fallback),
                 )
-            return available
+                return fallback
+            raise ValueError(
+                "No usable Groq models found on this account. "
+                "Enable at least one model at https://console.groq.com"
+            )
         except ValueError:
             raise
         except Exception as exc:
             logger.warning("Could not list Groq models (%s); will try all tier models", exc)
-            return {m for _, m in self._MODEL_TIERS}  # optimistic fallback
+            return {m for _, m in self._MODEL_TIERS}
 
     def _models_for_prompt(self, prompt: str) -> list:
-        """Return ordered model chain for this prompt: best fit first, then escalating tiers."""
+        """Return ordered model chain for this prompt: best tier fit first, then escalating."""
         prompt_len = len(prompt)
-        # Find the first tier whose capacity covers this prompt size
-        primary = self._MODEL_TIERS[-1][1]
+        tier_models = [m for _, m in self._MODEL_TIERS]
+
+        # Find the lightest tier model that fits this prompt and is on the account
+        primary = None
         for max_chars, model in self._MODEL_TIERS:
             if (max_chars is None or prompt_len <= max_chars) and model in self._available:
                 primary = model
                 break
-        # Chain: primary first, then remaining tiers in ascending capacity order
-        chain = [primary]
+
+        if primary is None:
+            # No tier model available — use account's models sorted for determinism
+            chain = sorted(self._available - set(tier_models))
+        else:
+            chain = [primary]
+
+        # Append remaining tier models (rate-limit escalation path)
         for _, model in self._MODEL_TIERS:
             if model not in chain and model in self._available:
                 chain.append(model)
+
+        # Append any non-tier account models at the end (last resort)
+        for model in sorted(self._available):
+            if model not in chain:
+                chain.append(model)
+
         logger.debug("Prompt len=%d → model chain: %s", prompt_len, chain)
         return chain
 
@@ -176,11 +208,11 @@ class GroqProvider(BaseLLMProvider):
 
     @property
     def model_name(self) -> str:
-        # Report the lightest available model as the active one
+        # Report the lightest available tier model, or first available if none match tiers
         for _, model in self._MODEL_TIERS:
             if model in self._available:
                 return model
-        return "unknown"
+        return next(iter(sorted(self._available)), "unknown")
 
     def generate(self, prompt: str) -> str:
         from groq import RateLimitError
@@ -364,8 +396,7 @@ def get_provider() -> BaseLLMProvider:
         api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
             raise ValueError("LLM_PROVIDER=groq requires GROQ_API_KEY. Get a free key at https://console.groq.com")
-        model = os.getenv("LLM_MODEL", PROVIDER_INFO["groq"]["default_model"])
-        return GroqProvider(api_key=api_key, model=model)
+        return GroqProvider(api_key=api_key)
 
     if provider_name == "gemini":
         api_key = os.getenv("GEMINI_API_KEY")
